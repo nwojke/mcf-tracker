@@ -1,0 +1,6 @@
+[submodule "external/mcf"]
+	path = external/mcf
+	url = https://github.com/nwojke/mcf.git
+[submodule "external/pymotutils"]
+	path = external/pymotutils
+	url = https://github.com/nwojke/pymotutils.git
