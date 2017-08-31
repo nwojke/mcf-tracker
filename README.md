@@ -70,7 +70,7 @@ Note that this can take a while to run. On completion, you should have a
 `motchallenge_observation_cost_model.pkl` and
 `motchallenge_transition_cost_model.pkl` inside the project root directory.
 
-## Run the tracker
+### Run the tracker
 
 You can now run the tracker on one of the test sequences with the following
 command (see `--help` for more options):
@@ -92,7 +92,7 @@ On completion, the results will be written to `output_trajectories.txt` in
 MOTChallenge evaluation format and a video of the tracking output will be
 stored in `output_video.avi`. 
 
-# Demo on KITTI dataset
+## Demo on KITTI dataset
 
 There is a Python application `kitti_tracking_app.py` that runs the tracker
 on the [KITTI tracking](http://www.cvlibs.net/datasets/kitti/eval_tracking.php)
