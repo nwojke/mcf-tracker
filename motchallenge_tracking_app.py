@@ -1,6 +1,7 @@
 # vim: expandtab:ts=4:sw=4
 import argparse
 import pickle
+import os
 
 import pymotutils
 from pymotutils.contrib.datasets import motchallenge
@@ -44,6 +45,12 @@ def parse_args():
         "results in increased fragmentations/shorter trajectories.",
         type=float, default=10.0)
     parser.add_argument(
+        "--observation_cost_bias",
+        help="A bias term that is added to all observation costs. A value "
+        "larger than zero results in more object trajectories. A value smaller "
+        "than zero results in fewer object trajectories.",
+        type=float, default=0.0)
+    parser.add_argument(
         "--max_num_misses",
         help="Maximum number of consecutive misses before a track should be "
              "dropped.",
@@ -57,6 +64,13 @@ def parse_args():
         "fixed-length history of frames is optimized at each time step. If "
         "None, trajectories are computed over the entire sequence (offline "
         "mode).", type=int, default=30)
+    parser.add_argument(
+        "--show_output", help="If True, shows tracking output", type=bool,
+        default=True)
+    parser.add_argument(
+        "--output_dir", help="Path to tracking output directory. Results "
+        "are stored in this directory in MOTChallenge format.",
+        default=".")
     return parser.parse_args()
 
 
@@ -89,7 +103,8 @@ def main():
     tracker = min_cost_flow_tracker.MinCostFlowTracker(
         args.entry_exit_cost, observation_cost_model, transition_cost_model,
         args.max_num_misses, args.miss_rate, args.cnn_model,
-        optimizer_window_len=args.optimizer_window_len)
+        optimizer_window_len=args.optimizer_window_len,
+        observation_cost_bias=args.observation_cost_bias)
     pymot_adapter = min_cost_flow_pymot.PymotAdapter(tracker)
 
     # Compute a suitable window shape.
@@ -104,12 +119,15 @@ def main():
     application = pymotutils.Application(data_source)
     application.process_data(pymot_adapter, visualization)
     application.compute_trajectories(interpolation=True)
-    visualization.enable_videowriter("output_video.avi")  # Write video file
-    application.play_hypotheses(visualization)
+    if args.show_output:
+        visualization.enable_videowriter(
+            os.path.join(args.output_dir, "%s.avi" % args.sequence))
+        application.play_hypotheses(visualization)
 
-    # Save results in MOTChallenge format.
-    pymotutils.motchallenge_io.write_hypotheses(
-        "output_trajectories.txt", application.hypotheses)
+    if args.output_dir is not None:
+        pymotutils.motchallenge_io.write_hypotheses(
+            os.path.join(args.output_dir, "%s.txt" % args.sequence),
+            application.hypotheses)
 
 
 if __name__ == "__main__":

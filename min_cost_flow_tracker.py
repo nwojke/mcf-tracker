@@ -367,13 +367,21 @@ class MinCostFlowTracker(object):
         If not None, the tracker operates in online mode where a fixed-length
         history of frames is optimized at each time step. Results from outside
         of the optimization window are cached to provide a consistent labeling.
-
     transition_cost_pruning_threshold : float
         A threshold on the transition cost. Edges in the graph that have a
         larger cost than this value are pruned from the graph structure.
+    observation_cost_bias : Optional[float]
+        A bias term that is added to all observation costs. A value larger than
+        zero results in fewer object trajectories. A value smaller than zero
+        results in more object trajectories.
 
     Attributes
     ----------
+    entry_exit_cost : float
+        A (positive) cost term for starting and ending a trajectory. This is
+        a smoothing parameter that trades off continuation of existing
+        trajectories against starting new ones. A lower cost results in
+        increased fragmentations/shorter trajectories.
     observation_cost_model : ObservationCostModel
         The ObservationCostModel used by this tracker.
     transition_cost_model : TransitionCostModel
@@ -401,10 +409,12 @@ class MinCostFlowTracker(object):
             transition_cost_model, max_num_misses=5, miss_rate=0.1,
             cnn_model_filename=None, cnn_batch_size=32,
             optimizer_window_len=None,
-            transition_cost_pruning_threshold=-np.log(0.01)):
-        self._entry_exit_cost = entry_exit_cost
+            transition_cost_pruning_threshold=-np.log(0.01),
+            observation_cost_bias=0.0):
+        self.entry_exit_cost = entry_exit_cost
         self.observation_cost_model = observation_cost_model
         self.transition_cost_model = transition_cost_model
+        self._observation_cost_bias = observation_cost_bias
 
         self._max_num_misses = max_num_misses
         self._transition_cost_pruning_threshold = (
@@ -469,17 +479,19 @@ class MinCostFlowTracker(object):
             features = self._cnn_encoder(bgr_image, boxes)
 
         # Add nodes to graph for detections observed at this time step.
-        observation_costs = self.observation_cost_model.compute_cost(scores)
+        observation_costs = (
+            self.observation_cost_model.compute_cost(scores)
+            if len(scores) > 0 else np.zeros((0, )))
         node_ids = []
         for i, cost in enumerate(observation_costs):
             node_id = self._graph.add(
-                cost, attributes={
+                cost + self._observation_cost_bias, attributes={
                     "box": boxes[i],
                     "feature": features[i],
                     "frame_idx": self.next_frame_idx
                 })
-            self._graph.link(self._graph.ST, node_id, self._entry_exit_cost)
-            self._graph.link(node_id, self._graph.ST, self._entry_exit_cost)
+            self._graph.link(self._graph.ST, node_id, self.entry_exit_cost)
+            self._graph.link(node_id, self._graph.ST, self.entry_exit_cost)
             node_ids.append(node_id)
 
         # Link detections to candidate predecessors.

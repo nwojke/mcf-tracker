@@ -130,6 +130,8 @@ def main():
             axes.hist(scores[3][time_gap])
 
     print("Done.")
+    if len(test_sequences) > 0:
+        plt.show()
 
 
 if __name__ == "__main__":
