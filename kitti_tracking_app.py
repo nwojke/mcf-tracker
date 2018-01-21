@@ -56,12 +56,12 @@ def draw_online_tracking_results(image_viewer, frame_data, pymot_adapter):
     del frame_data  # Unused variable.
     image_viewer.thickness = 2
 
-    newest_frame_idx = pymot_adapter.tracker.next_frame_idx - 1
-    for i, trajectory in enumerate(pymot_adapter.tracker.trajectories):
-        if len(trajectory) == 0 or trajectory[-1][0] != newest_frame_idx:
+    newest_frame_idx = pymot_adapter.compute_next_frame_idx() - 1
+    for i, trajectory in pymot_adapter.trajectory_dict.items():
+        if len(trajectory) == 0 or trajectory[-1].frame_idx != newest_frame_idx:
             continue  # This trajectory is empty or has been terminated.
         image_viewer.color = pymotutils.create_unique_color_uchar(i)
-        x, y, w, h = trajectory[-1][1]
+        x, y, w, h = trajectory[-1].sensor_data
         image_viewer.rectangle(x, y, w, h, label="%d" % i)
 
 

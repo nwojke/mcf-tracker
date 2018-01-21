@@ -76,7 +76,7 @@ You can now run the tracker on one of the test sequences with the following
 command (see `--help` for more options):
 
 ```
-python motchallenge_tracking_app --mot_dir=./MOT16/test --sequence=MOT16-06 \
+python motchallenge_tracking_app.py --mot_dir=./MOT16/test --sequence=MOT16-06 \
     --optimizer_window_len=30
 ```
 

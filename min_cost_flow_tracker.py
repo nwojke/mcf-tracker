@@ -207,7 +207,7 @@ class ObservationCostModel(object):
         train_x = np.r_[true_positive_scores, false_alarm_scores]
         train_y = np.r_[[1] * len(true_positive_scores) +
                         [0] * len(false_alarm_scores)]
-        self._classifier.fit(train_x[:, np.newaxis], train_y)
+        self._classifier.fit(train_x.reshape(len(train_x), -1), train_y)
 
     def compute_cost(self, detector_confidence_scores):
         """Compute observation cost from given detector confidence scores.
@@ -227,7 +227,8 @@ class ObservationCostModel(object):
         """
         # log [p_false_alarm / (1 - p_false_alarm)]
         log_probabilities = self._classifier.predict_log_proba(
-            np.asarray(detector_confidence_scores).reshape(-1, 1))
+            np.asarray(detector_confidence_scores).reshape(
+                len(detector_confidence_scores), -1))
         return log_probabilities[:, 0] - log_probabilities[:, 1]
 
 
@@ -366,7 +367,7 @@ class MinCostFlowTracker(object):
         calling `compute_trajectories()`.
         If not None, the tracker operates in online mode where a fixed-length
         history of frames is optimized at each time step. Results from outside
-        of the optimization window are cached to provide a consistent labeling.
+        of the optimization window are cached to provide consistent labeling.
     transition_cost_pruning_threshold : float
         A threshold on the transition cost. Edges in the graph that have a
         larger cost than this value are pruned from the graph structure.
@@ -395,13 +396,6 @@ class MinCostFlowTracker(object):
         in the next call to `process` are annotated with this index. The index
         of the first frame to be processed is zero and the counter is increased
         by one for each consecutive call.
-    trajectories : List[List[Tuple[int, ndarray]]]
-        If in online_mode, contains the most current set of trajectories. If
-        not in online_mode, an empty list.
-
-        Each entry contains the index of the frame at which the detection
-        occured (see next_frame_idx) and the bounding box in
-        format (top-left-x, top-left-y, width, height).
     """
 
     def __init__(
@@ -441,8 +435,6 @@ class MinCostFlowTracker(object):
             self._graph = mcf.BatchProcessing(window_len=optimizer_window_len)
             self.online_mode = True
 
-        self.trajectories = []  # Only used in online mode.
-
         self.next_frame_idx = 0
         self._nodes_in_timestep = []
 
@@ -467,9 +459,10 @@ class MinCostFlowTracker(object):
 
         Returns
         -------
-        NoneType | List[List[Tuple[int, ndarray]]]
+        NoneType | Dict[int, ndarray]
             Returns None if the tracker operates in offline mode. Otherwise,
-            returns the set of object trajectories at the current time step.
+            returns a dictionary that maps from track id to bounding box
+            in format (top-left-x, top-left-y, width, height).
 
         """
         # Compute features if necessary.
@@ -520,31 +513,47 @@ class MinCostFlowTracker(object):
         self._nodes_in_timestep.append(node_ids)
 
         # Compute trajectories if in online-model.
-        if self.online_mode:
-            self._graph.finalize_timestep()
-            trajectories = self._graph.run_search()
-            self.trajectories = [[
-                (self._graph[x]["frame_idx"], self._graph[x]["box"])
-                for x in trajectory
-            ] for trajectory in trajectories]
+        if not self.online_mode:
+            self.next_frame_idx += 1
+            return None
+
+        self._graph.finalize_timestep()
+        trajectories, _ = self._graph.compute_trajectories(
+            ignore_last_exit_cost=True)
+
+        tracker_output = dict()
+        for k, trajectory in trajectories.items():
+            if len(trajectory) == 0:
+                continue
+
+            node_attributes = self._graph[trajectory[-1]]
+            if node_attributes["frame_idx"] != self.next_frame_idx:
+                # No trajectory output at the current time step.
+                continue
+
+            tracker_output[k] = node_attributes["box"]
+        self._graph.remove_inactive_tracks()
 
         self.next_frame_idx += 1
-        return self.trajectories if self.online_mode else None
+        return tracker_output
 
     def compute_trajectories(self):
         """Compute trajectories over the entire observation sequence.
+
+        Only works in offline mode (not self.online_mode).
 
         Returns
         -------
         List[List[Tuple[int, ndarray]]]
             Returns the set of object trajectories. Each entry contains the
             index of the frame at which the detection occured (see
-            next_frame_idx) and the bounding box in
-            format (top-left-x, top-left-y, width, height).
+            self.next_frame_idx) and the bounding box in format
+            (top-left-x, top-left-y, width, height).
 
         """
         if self.online_mode:
-            return self.trajectories
+            raise ValueError(
+                "Batch trajectory computation is not supported in online mode")
 
         solver = mcf.Solver(self._graph)
         trajectories = solver.run_search(

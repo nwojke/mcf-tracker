@@ -91,7 +91,6 @@ class MinCostFlowTrainer(object):
             ]
         for false_alarm_list in false_alarms.values():
             self._negative_scores += [d.confidence for d in false_alarm_list]
-
         positive_pairs, negative_pairs = collect_positive_negative_pairs(
             track_set, range(1, 1 + max_num_misses))
         self._positive_pairs += positive_pairs
@@ -176,7 +175,6 @@ def score_dataset(
         positive_scores += [d.confidence for d in track.detections.values()]
     for false_alarm_list in false_alarms.values():
         negative_scores += [d.confidence for d in false_alarm_list]
-
     positive_observation_costs = (
         observation_cost_model.compute_cost(positive_scores))
     negative_observation_costs = (
@@ -221,12 +219,17 @@ class PymotAdapter(pymotutils.Tracker):
     ----------
     tracker : min_cost_flow_tracker.MinCostFlowTracker
         The tracker to be wrapped.
+    trajectory_dict : Dict[int, List[Tuple[int, ndarray]]]
+        Maps from track id to trajectory where trajectories are defined as
+        list of tuples (frame index, box) with box in format (top-left-x,
+        top-left-y, width, height).
 
     """
 
     def __init__(self, tracker):
         assert isinstance(tracker, min_cost_flow_tracker.MinCostFlowTracker)
         self.tracker = tracker
+        self.trajectory_dict = dict()
         self._start_idx = 0
 
     def reset(self, start_idx, end_idx):
@@ -245,9 +248,20 @@ class PymotAdapter(pymotutils.Tracker):
         boxes = np.asarray([d.roi for d in detections])
         scores = np.asarray([d.confidence for d in detections])
 
-        self.tracker.process(boxes, scores, bgr_image, features)
+        tracker_frame_idx = self.tracker.next_frame_idx
+        tracker_output = self.tracker.process(
+            boxes, scores, bgr_image, features)
+        if tracker_output is not None:
+            for k, box in tracker_output.items():
+                self.trajectory_dict.setdefault(k, []).append(
+                    pymotutils.Detection(
+                        frame_idx=self._start_idx + tracker_frame_idx,
+                        sensor_data=box))
 
     def compute_trajectories(self):
+        if self.tracker.online_mode:
+            return list(self.trajectory_dict.values())
+
         trajectories = self.tracker.compute_trajectories()
         trajectories = [[
             pymotutils.Detection(
@@ -255,3 +269,6 @@ class PymotAdapter(pymotutils.Tracker):
             for x in trajectory
         ] for trajectory in trajectories]
         return trajectories
+
+    def compute_next_frame_idx(self):
+        return self._start_idx + self.tracker.next_frame_idx
